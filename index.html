@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html>
+<meta charset="utf-8">
+
+<title>Party ratings</title>
+
+<style>
+  body{
+    font: 11px "San Francisco", Helvetica, Arial, sans-serif;
+    background: #ededed;
+  }
+  svg{
+    margin-top: 40px;
+    margin-left:auto;
+    margin-right:auto;
+    display:block;
+    vertical-align: middle;
+  }
+  .title{
+    font-size: 36px;
+    text-align: center;
+    margin-top: 40px;
+  }
+  .tick line{
+    opacity: 0.2;
+  }
+
+</style>
+<body>
+  <p class="title">Party ratings 2007-2016</p>
+  <script src="http://d3js.org/d3.v4.min.js"></script>
+  <script>
+    var margin = {top: 20, right: 60, bottom: 30, left: 40},
+    width = 1100 - margin.left - margin.right,
+    height = 450 - margin.top - margin.bottom;
+
+    var x = d3.scaleTime().range([0, width]),
+    y = d3.scaleLinear().range([height, 0]),
+    c = d3.scaleOrdinal()
+    .domain(["ref", "kesk", "irl", "sde", "vaba", "ekre"])
+    .range(["#ff9900", "#109618", "#3366cc", "#dc3912", "#888888", "#7a5230"]),
+    n = 1000,
+    t = d3.transition().duration(100),
+    partyShow = [true, true, false, false];
+
+    var line = d3.line()
+    .x(function(d) { return x(d.x); })
+    .y(function(d) { return y(d.y); });
+
+    var lineStep = d3.line()
+    .x(function(d) { return x(d.x); })
+    .y(function(d) { return y(d.y); })
+    .curve(d3.curveStepAfter);
+
+    var area = d3.area()
+    .x(function(d) { return x(d.x); })
+    .y1(function(d) { return y(d.y1); })
+    .y0(function(d) { return y(d.y0); })
+    .curve(d3.curveStep);
+
+    var svg = d3.select("body").append("svg")
+    .attr("width", width + margin.left + margin.right)
+    .attr("height", height + margin.top + margin.bottom);
+    var g = svg.append("g").attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+    g.append("clipPath")
+    .attr("id", "box")
+    .append("rect")
+    .attr("width", width)
+    .attr("height", height);
+
+    d3.tsv("ratings.txt", function(error, data) {
+
+      confArea = new Array;
+      confLine = new Array;
+      data.forEach(function(d,i) {
+        d.date = new Date(+d.year, +d.month-1, 1);
+        d.party = d.party;
+        d.support = Math.round(+d.support*100);
+      });
+
+      x.domain(d3.extent(data, function(d) { return d.date; }));
+      y.domain([d3.min(data, function(d) { return d.support; })-1, d3.max(data, function(d) { return d.support; })+5]);
+
+      var nestedData = d3.nest()
+      .key(function(d){return d.party;})
+      .entries(data);
+
+      g.append("line")
+      .attr("x1", x(new Date(2011,2,1)))
+      .attr("y1", 0)
+      .attr("x2", x(new Date(2011,2,1)))
+      .attr("y2", height)
+      .attr("stroke-width", .5)
+      .attr("stroke", "black");
+      g.append("text")
+      .attr("class", "label")
+      .attr("transform", "rotate(-90)")
+      .attr("y", x(new Date(2011,2,1))+6)
+      .attr("x", -5)
+      .attr("dy", ".71em")
+      .style("text-anchor", "end")
+      .text("NP elections");
+
+      g.append("line")
+      .attr("x1", x(new Date(2015,2,1)))
+      .attr("y1", 0)
+      .attr("x2", x(new Date(2015,2,1)))
+      .attr("y2", height)
+      .attr("stroke-width", .5)
+      .attr("stroke", "black");
+      g.append("text")
+      .attr("class", "label")
+      .attr("transform", "rotate(-90)")
+      .attr("y", x(new Date(2015,2,1))+6)
+      .attr("x", -5)
+      .attr("dy", ".71em")
+      .style("text-anchor", "end")
+      .text("NP elections");
+
+      nestedData.forEach(function(d){
+        confArea.length = 0;
+        confLine.length = 0;
+        party = d.values.map(function(d){ return d; });
+        party.forEach(function(g){
+          confArea.push({ x: g.date, y: g.support, y1: g.support + ci95(g.support, n), y0: g.support - ci95(g.support, n), party: d.key });
+        });
+
+        y0 = (confArea[0].y1 + confArea[0].y0) / 2;
+        confLine.push({ x: confArea[0].x, y: y0, party: d.key });
+
+        for(i = 0; i < confArea.length; i++){
+          if(confArea[i].y1 < confLine[confLine.length-1].y){
+            confLine.push({ x: confArea[i].x, y: confArea[i].y1, party: d.key });
+          }else if(confArea[i].y0 > confLine[confLine.length-1].y) {
+            confLine.push({ x: confArea[i].x, y: confArea[i].y0, party: d.key });
+          };       
+        };
+
+        if(confLine[confLine.length-1].x != confArea[confArea.length-1].x){
+        	confLine.push({ x: confArea[confArea.length-1].x, y: confLine[confLine.length-1].y, party: d.key });
+        }
+
+        g.append("path")
+        .data(confArea.filter(function(g){return g.party==d.key }))
+        .attr("id", function(d) { return d.party; })
+        .attr("class", "area")
+        .attr("d", area(confArea))
+        .style("fill", function(d) { return c(d.party); })
+        .style("opacity", .05)
+        .attr("clip-path", "url(#box)")
+        .style("display", function(d){ if(d.party =="ref" || d.party =="kesk") {return "inline";} else {return "none";}; });
+
+        g.append("path")
+        .data(confArea.filter(function(g){return g.party==d.key }))
+        .attr("id", function(d) { return d.party; })
+        .attr("d", line(confArea))
+        .style("fill", "none")
+        .style("stroke", function(d) { return c(d.party); })
+        .style("stroke-width", 1)
+        .style("stroke-dasharray", (3, 3))
+        .style("opacity", 1)
+        .attr("clip-path", "url(#box)")
+        .style("display", function(d){ if(d.party =="ref" || d.party =="kesk") {return "inline";} else {return "none";}; });
+
+        g.append("path")
+        .data(confLine.filter(function(g){return g.party==d.key }))
+        .attr("id", function(d) { return d.party; })
+        .attr("d", lineStep(confLine))
+        .style("fill", "none")
+        .style("stroke", function(d) { return c(d.party); })
+        .style("stroke-width", 3)
+        .style("opacity", 1)
+        .attr("clip-path", "url(#box)")
+        .style("display", function(d){ if(d.party =="ref" || d.party =="kesk") {return "inline";} else {return "none";}; });
+      });
+
+      g.append("g")
+      .attr("class", "x axis")
+      .attr("transform", "translate(0," + height + ")")
+      .call(d3.axisBottom(x).tickSize(-height,5))
+      .append("text")
+      .attr("class", "label")
+      .attr("x", width-5)
+      .attr("y", -6)
+      .style("text-anchor", "end")
+      .style("fill", "black")
+      .text("Time");
+
+      g.append("g")
+      .attr("class", "y axis")
+      .call(d3.axisLeft(y).tickSize(-width,5))
+      .append("text")
+      .attr("class", "label")
+      .attr("transform", "rotate(-90)")
+      .attr("y", 6)
+      .attr("x", -5)
+      .attr("dy", ".71em")
+      .style("text-anchor", "end")
+      .style("fill", "black")
+      .text("Ratings (%)");
+
+      d3.selectAll(".area")
+      .on("mouseover", function(d){
+      	d3.select(this)
+      	.transition()
+      	.duration(100)
+      	.style("opacity", .1);
+      })
+      .on("mouseout", function(d){
+      	d3.select(this)
+      	.transition()
+      	.duration(100)
+      	.style("opacity", .05);
+      });
+
+      var legend = g.selectAll(".legend")
+      .data(c.domain())
+      .enter()
+      .append("g")
+      .attr("class", "legend")
+      .attr("transform", function(d, i) { return "translate(0," + (i * 30 + 20) + ")"; });
+
+      legend.append("circle")
+      .attr("r", 7)
+      .attr("cx", width + 20)
+      .attr("id", function(d){ return "legend"+d; })
+      .style("opacity", .7)
+      .style("fill", function(d){ if(d == "ref" || d == "kesk") {return c(d);} else {return "#ededed" ;}; })
+      .style("stroke", "black")
+      .on("click", function(d, i){
+        if (!partyShow[i]) {
+          d3.selectAll("#" + [d])
+          .transition()
+          .duration(100)
+          .style("display", "inline");
+
+          d3.selectAll("#legend" + [d])
+          .transition()
+          .duration(100)
+          .style("fill", c);
+        } else {
+          d3.selectAll("#" + [d])
+          .transition()
+          .duration(100)
+          .style("display", "none");
+
+          d3.selectAll("#legend" + [d])
+          .transition()
+          .duration(100)
+          .style("fill", "#ededed");
+        }
+        partyShow[i] =! partyShow[i];
+      });
+
+      legend.append("text")
+      .attr("x", width + 30)
+      .attr("dy", ".35em")
+      .style("text-anchor", "start")
+      .text(function(d) { return d;});
+    });
+
+    function ci95(p, n) {
+      var p = p/100;
+      return Math.sqrt((p*(1-p))/n) * 196;
+    };
+
+  </script>
+</body>
+</html>
